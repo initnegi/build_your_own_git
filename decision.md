@@ -8,3 +8,8 @@
 - Store fetched objects as standard loose objects: existing commands already understand that format, and it makes the cloned `.git` inspectable by the tester.
 - Checkout the advertised tip tree recursively: the tester verifies working-tree contents as well as commit metadata.
 - Record meaningful versions with local Git commits: each implementation checkpoint gets a commit ID so it can be restored deliberately without rewriting history.
+
+## Checkpoints
+
+- `9ede237` - pre-clone implementation.
+- `56841fa` - Smart HTTP clone implementation with pack decoding and checkout.
