@@ -122,6 +122,19 @@ int main(int argc, char *argv[]){
             hash_string += buffer;
         }
 
+        uLong compressed_size = compressBound(object.size());
+
+        std::string compressed(compressed_size, '\0');
+
+        compress(
+            reinterpret_cast<Bytef*>(compressed.data()),
+            &compressed_size,
+            reinterpret_cast<const Bytef*>(object.data()),
+            object.size()
+        );
+
+        compressed.resize(compressed_size);
+
         std::cout<< hash_string << '\n';
     }
     else {
