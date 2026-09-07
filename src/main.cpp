@@ -88,6 +88,22 @@ int main(int argc, char *argv[]){
 
         std::cout<< contents.substr(header_size);
     }
+    else if(command == "hash-object"){
+        if(argc < 4){
+            return EXIT_FAILURE;
+        }
+
+        std::ifstream file(argv[3], std::ios::binary);
+
+        std::string::content(
+            (std::istreambuf_iterator<char>(file)),
+            std::istreambuf_iterator<char>()
+        );
+
+        std::string header = "blob" + std::to_string(content.size()) + '\0';
+
+        std::string object = header + content;
+    }
     else {
         std::cerr << "Unknown command " << command << '\n';
         return EXIT_FAILURE;
