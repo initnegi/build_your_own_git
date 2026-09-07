@@ -135,6 +135,17 @@ int main(int argc, char *argv[]){
 
         compressed.resize(compressed_size);
 
+        std::string object_dir = ".git/objects/" + hash_string.substr(0, 2);
+
+        std::string object_file = object_dir + "/" + hash_string.substr(2);
+
+        std::filesystem::create_directory(object_dir);
+
+        std::ofstream output(object_file, std::ios::binary);
+
+        output.write(compressed.data(), compressed.size());
+        
+
         std::cout<< hash_string << '\n';
     }
     else {
