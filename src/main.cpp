@@ -13,6 +13,8 @@
 #include <map>
 #include <set>
 #include <ctime>
+#include <unordered_map>
+#include <stdexcept>
 #include <sys/wait.h>
 
 
@@ -716,6 +718,282 @@ std::string writeTree(const std::filesystem::path& directory) {
     output.write(compressed.data(), compressed.size());
 
     return hash_string;
+}
+
+struct DecodedPackObject {
+    int type;
+    std::string data;
+    size_t offset;
+    std::string sha;
+};
+
+uint64_t readDeltaSize(PackParser& parser) {
+    uint64_t size = 0;
+    int shift = 0;
+
+    while(true) {
+        unsigned char byte = parser.readByte();
+        size |= static_cast<uint64_t>(byte & 0x7f) << shift;
+
+        if(!(byte & 0x80)) {
+            return size;
+        }
+
+        shift += 7;
+    }
+}
+
+std::string applyDelta(const std::string& base, const std::string& delta) {
+    PackParser parser(delta);
+    uint64_t baseSize = readDeltaSize(parser);
+    uint64_t resultSize = readDeltaSize(parser);
+
+    if(baseSize != base.size()) {
+        throw std::runtime_error("Delta base size mismatch");
+    }
+
+    std::string result;
+    result.reserve(static_cast<size_t>(resultSize));
+
+    while(parser.pos < delta.size()) {
+        unsigned char instruction = parser.readByte();
+
+        if(instruction & 0x80) {
+            size_t offset = 0;
+            size_t size = 0;
+
+            if(instruction & 0x01) offset |= parser.readByte();
+            if(instruction & 0x02) offset |= static_cast<size_t>(parser.readByte()) << 8;
+            if(instruction & 0x04) offset |= static_cast<size_t>(parser.readByte()) << 16;
+            if(instruction & 0x08) offset |= static_cast<size_t>(parser.readByte()) << 24;
+            if(instruction & 0x10) size |= parser.readByte();
+            if(instruction & 0x20) size |= static_cast<size_t>(parser.readByte()) << 8;
+            if(instruction & 0x40) size |= static_cast<size_t>(parser.readByte()) << 16;
+
+            if(size == 0) size = 0x10000;
+            if(offset > base.size() || size > base.size() - offset) {
+                throw std::runtime_error("Delta copy exceeds base object");
+            }
+
+            result.append(base, offset, size);
+        }
+        else {
+            if(instruction == 0) {
+                throw std::runtime_error("Invalid delta instruction");
+            }
+
+            result += parser.readBytes(instruction);
+        }
+    }
+
+    if(result.size() != resultSize) {
+        throw std::runtime_error("Delta result size mismatch");
+    }
+
+    return result;
+}
+
+std::string objectTypeName(int type) {
+    switch(type) {
+        case 1: return "commit";
+        case 2: return "tree";
+        case 3: return "blob";
+        case 4: return "tag";
+        default: throw std::runtime_error("Unsupported Git object type");
+    }
+}
+
+std::vector<DecodedPackObject> decodePack(const std::string& packData) {
+    PackParser parser(packData);
+    uint32_t objectCount = 0;
+    parsePackHeader(parser, objectCount);
+
+    std::vector<DecodedPackObject> objects;
+    std::unordered_map<size_t, size_t> indexByOffset;
+    std::unordered_map<std::string, size_t> indexBySha;
+
+    for(uint32_t i = 0; i < objectCount; i++) {
+        size_t objectOffset = parser.pos;
+        unsigned char firstByte = parser.readByte();
+        int type = (firstByte >> 4) & 7;
+        uint64_t expectedSize = readPackSize(parser, firstByte);
+        size_t baseOffset = 0;
+        std::string baseShaHex;
+
+        if(type == 6) {
+            unsigned char byte = parser.readByte();
+            uint64_t distance = byte & 0x7f;
+
+            while(byte & 0x80) {
+                byte = parser.readByte();
+                distance = ((distance + 1) << 7) | (byte & 0x7f);
+            }
+
+            if(distance > objectOffset) {
+                throw std::runtime_error("Invalid OFS-delta base offset");
+            }
+
+            baseOffset = objectOffset - static_cast<size_t>(distance);
+        }
+        else if(type == 7) {
+            std::string baseSha = parser.readBytes(20);
+            for(unsigned char byte : baseSha) {
+                char buffer[3];
+                sprintf(buffer, "%02x", byte);
+                baseShaHex += buffer;
+            }
+        }
+
+        std::string compressedObject = inflatePackObject(
+            parser,
+            type >= 1 && type <= 4 ? expectedSize : 0
+        );
+        std::string data;
+        int resolvedType = type;
+
+        if(type >= 1 && type <= 4) {
+            data = compressedObject;
+        }
+        else if(type == 6) {
+            auto baseIt = indexByOffset.find(baseOffset);
+            if(baseIt == indexByOffset.end()) {
+                throw std::runtime_error("OFS-delta base was not found");
+            }
+
+            const auto& base = objects[baseIt->second];
+            resolvedType = base.type;
+            data = applyDelta(base.data, compressedObject);
+        }
+        else if(type == 7) {
+            auto baseIt = indexBySha.find(baseShaHex);
+            if(baseIt == indexBySha.end()) {
+                throw std::runtime_error("REF-delta base was not found");
+            }
+
+            const auto& base = objects[baseIt->second];
+            resolvedType = base.type;
+            data = applyDelta(base.data, compressedObject);
+        }
+        else {
+            throw std::runtime_error("Unsupported pack object type");
+        }
+
+        std::string typeName = objectTypeName(resolvedType);
+        std::string object = typeName + " " + std::to_string(data.size()) + '\0' + data;
+        std::string sha = sha1Hex(object);
+
+        objects.push_back({resolvedType, data, objectOffset, sha});
+        indexByOffset[objectOffset] = objects.size() - 1;
+        indexBySha[sha] = objects.size() - 1;
+    }
+
+    return objects;
+}
+
+std::string readObjectContent(const std::filesystem::path& gitDir, const std::string& sha, std::string& type) {
+    std::filesystem::path objectFile = gitDir / "objects" / sha.substr(0, 2) / sha.substr(2);
+    std::ifstream file(objectFile, std::ios::binary);
+    if(!file) throw std::runtime_error("Missing Git object " + sha);
+
+    std::string compressed((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    z_stream stream{};
+    stream.next_in = reinterpret_cast<Bytef*>(compressed.data());
+    stream.avail_in = static_cast<uInt>(compressed.size());
+    if(inflateInit(&stream) != Z_OK) throw std::runtime_error("inflateInit failed");
+
+    std::string contents;
+    char buffer[8192];
+    int ret;
+    do {
+        stream.next_out = reinterpret_cast<Bytef*>(buffer);
+        stream.avail_out = sizeof(buffer);
+        ret = inflate(&stream, Z_NO_FLUSH);
+        contents.append(buffer, sizeof(buffer) - stream.avail_out);
+    } while(ret == Z_OK);
+    inflateEnd(&stream);
+
+    if(ret != Z_STREAM_END) throw std::runtime_error("Failed to inflate Git object");
+    size_t separator = contents.find('\0');
+    if(separator == std::string::npos) throw std::runtime_error("Invalid Git object");
+    size_t space = contents.find(' ');
+    type = contents.substr(0, space);
+    return contents.substr(separator + 1);
+}
+
+void checkoutTree(const std::filesystem::path& gitDir, const std::string& treeSha, const std::filesystem::path& directory) {
+    std::string type;
+    std::string tree = readObjectContent(gitDir, treeSha, type);
+    if(type != "tree") throw std::runtime_error("Commit does not point to a tree");
+    std::filesystem::create_directories(directory);
+
+    size_t position = 0;
+    while(position < tree.size()) {
+        size_t modeEnd = tree.find(' ', position);
+        size_t nameEnd = tree.find('\0', modeEnd + 1);
+        if(modeEnd == std::string::npos || nameEnd == std::string::npos || nameEnd + 21 > tree.size()) {
+            throw std::runtime_error("Invalid tree object");
+        }
+
+        std::string mode = tree.substr(position, modeEnd - position);
+        std::string name = tree.substr(modeEnd + 1, nameEnd - modeEnd - 1);
+        std::string shaBytes = tree.substr(nameEnd + 1, 20);
+        std::string sha;
+        for(unsigned char byte : shaBytes) {
+            char buffer[3];
+            sprintf(buffer, "%02x", byte);
+            sha += buffer;
+        }
+
+        std::filesystem::path output = directory / name;
+        if(mode == "40000" || mode == "040000") {
+            checkoutTree(gitDir, sha, output);
+        }
+        else {
+            std::string blobType;
+            std::string content = readObjectContent(gitDir, sha, blobType);
+            if(blobType != "blob") throw std::runtime_error("Tree entry is not a blob");
+            std::ofstream file(output, std::ios::binary);
+            file.write(content.data(), content.size());
+            if(mode == "100755" || mode == "100775") {
+                std::filesystem::permissions(output, std::filesystem::perms::owner_exec,
+                    std::filesystem::perm_options::add);
+            }
+        }
+
+        position = nameEnd + 21;
+    }
+}
+
+void cloneRepository(const std::string& repoUrl, const std::filesystem::path& targetDir) {
+    std::string refs = getGitRefs(repoUrl);
+    std::string headSha = getHeadSha(refs);
+    std::string response = requestPack(repoUrl, headSha);
+    size_t packStart = response.find("PACK");
+    if(packStart == std::string::npos) throw std::runtime_error("Packfile was not returned");
+
+    std::filesystem::create_directories(targetDir);
+    std::filesystem::path gitDir = targetDir / ".git";
+    std::filesystem::create_directories(gitDir / "objects");
+    std::filesystem::create_directories(gitDir / "refs" / "heads");
+    std::ofstream headFile(gitDir / "HEAD");
+    headFile << "ref: refs/heads/main\n";
+
+    std::vector<DecodedPackObject> objects = decodePack(response.substr(packStart));
+    for(const auto& object : objects) {
+        writeGitObject(gitDir, objectTypeName(object.type), object.data);
+    }
+
+    std::ofstream branchFile(gitDir / "refs" / "heads" / "main");
+    branchFile << headSha << '\n';
+
+    std::string commitType;
+    std::string commit = readObjectContent(gitDir, headSha, commitType);
+    if(commitType != "commit") throw std::runtime_error("HEAD is not a commit");
+    size_t treeLine = commit.find("tree ");
+    if(treeLine == std::string::npos) throw std::runtime_error("Commit has no tree");
+    treeLine += 5;
+    size_t treeEnd = commit.find('\n', treeLine);
+    checkoutTree(gitDir, commit.substr(treeLine, treeEnd - treeLine), targetDir);
 }
 
 int main(int argc, char *argv[]){
