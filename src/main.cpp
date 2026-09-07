@@ -15,6 +15,76 @@ struct TreeEntry {
 };
 
 
+std::string writeCommit(
+    const std::string& tree_sha,
+    const std::string& parent_sha,
+    const std::string& message
+) {
+    
+    std::string author = "John Doe <john@example.com> 1234567890 +0000";
+
+    std::string committer = "John Doe <john@example.com> 1234567890 +0000";
+
+    std::string commit_content;
+
+    commit_content += "tree " + tree_sha + "\n";
+    commit_content += "parent " + parent_sha + "\n";
+    commit_content += "author " + author + "\n";
+    commit_content += "committer " + committer + "\n";
+    commit_content += "\n";
+    commit_content += message + "\n";
+
+    
+    std::string header = "commit " + std::to_string(commit_content.size()) + '\0';
+
+    std::string object = header + commit_content;
+
+    unsigned char hash[SHA_DIGEST_LENGTH];
+
+    SHA1(
+        reinterpret_cast<const unsigned char*>(object.data()),
+        object.size(),
+        hash
+    );
+
+    std::string hash_string;
+
+    for (int i = 0; i < SHA_DIGEST_LENGTH; i++) {
+        char buffer[3];
+
+        sprintf(buffer, "%02x", hash[i]);
+
+        hash_string += buffer;
+    }
+
+    uLong compressed_size = compressBound(object.size());
+
+    std::string compressed(compressed_size, '\0');
+
+    compress(
+        reinterpret_cast<Bytef*>(compressed.data()),
+        &compressed_size,
+        reinterpret_cast<const Bytef*>(object.data()),
+        object.size()
+    );
+
+    compressed.resize(compressed_size);
+
+
+    std::string object_dir = ".git/objects/" + hash_string.substr(0, 2);
+
+    std::string object_file = object_dir + "/" + hash_string.substr(2);
+
+    std::filesystem::create_directories(object_dir);
+
+    std::ofstream output(object_file, std::ios::binary);
+
+    output.write(compressed.data(), compressed.size());
+
+    return hash_string;
+}
+
+
 std::string writeTree(const std::filesystem::path& directory) {
 
     std::vector<TreeEntry> entries;
@@ -156,7 +226,6 @@ std::string writeTree(const std::filesystem::path& directory) {
 
     return hash_string;
 }
-
 
 
 int main(int argc, char *argv[]){
@@ -366,6 +435,40 @@ int main(int argc, char *argv[]){
     }
     else if(command == "write-tree"){
         std::string hash = writeTree(".");
+        std::cout << hash << '\n';
+    }
+    else if(command == "commit-tree") {
+        if(argc < 7) {
+            return EXIT_FAILURE;
+        }
+
+        std::string tree_sha = argv[2];
+
+        std::string parent_sha;
+        std::string message;
+
+        for(int i = 3; i < argc; i++) {
+
+            if(std::string(argv[i]) == "-p") {
+
+                parent_sha = argv[i + 1];
+                i++;
+
+            }
+            else if(std::string(argv[i]) == "-m") {
+
+                message = argv[i + 1];
+                i++;
+            }
+        }
+
+        std::string hash =
+            writeCommit(
+                tree_sha,
+                parent_sha,
+                message
+            );
+
         std::cout << hash << '\n';
     }
     else {
