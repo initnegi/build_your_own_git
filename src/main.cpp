@@ -44,9 +44,13 @@ int main(int argc, char *argv[]){
         }
     } 
     else if(command == "cat-file"){
+        if(argc < 4){
+            return EXIT_FAILURE;
+        }
+
         std::string file_name = argv[3];
-        std::string file_location = std::string(".git/objects/") + 
-                               std::string(file_name.substr(0,2)) + '/' + 
+        std::string file_location = ".git/objects/" + 
+                               std::string(file_name.substr(0,2)) + "/" + 
                                std::string(file_name.substr(2));
 
         zstr::ifstream file(file_location);
@@ -56,7 +60,7 @@ int main(int argc, char *argv[]){
 
         size_t header_size = contents.find('\0') + 1;
 
-        cout<< string_view(contents.begin() + header_size + contents.end());
+        std::cout<< std::string_view(contents).substr(header_size);
     }
     else {
         std::cerr << "Unknown command " << command << '\n';
