@@ -2,7 +2,9 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <cstdio>
 #include <zlib.h>
+#include <openssl/sha.h>
 
 int main(int argc, char *argv[]){
 
@@ -103,6 +105,24 @@ int main(int argc, char *argv[]){
         std::string header = "blob " + std::to_string(content.size()) + '\0';
 
         std::string object = header + content;
+
+        unsigned char hash[SHA_DIGEST_LENGTH];
+
+        SHA1(
+            reinterpret_cast<const unsigned char*>(object.data()),
+            object.size(),
+            hash
+        );
+
+        std::string hash_string;
+
+        for(int i=0; i<SHA_DIGEST_LENGTH; i++){
+            char buffer[3];
+            sprintf(buffer, "%02x", hash[i]);
+            hash_string += buffer;
+        }
+
+        std::cout<< hash_string << '\n';
     }
     else {
         std::cerr << "Unknown command " << command << '\n';
