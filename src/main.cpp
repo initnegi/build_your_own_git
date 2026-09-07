@@ -2,17 +2,19 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
-int main(int argc, char *argv[])
-{
+#include "zstr/zstr.hpp"
+
+int main(int argc, char *argv[]){
+
     // Flush after every std::cout / std::cerr
     std::cout << std::unitbuf;
     std::cerr << std::unitbuf;
 
     // You can use print statements as follows for debugging, they'll be visible when running tests.
-    std::cerr << "Logs from your program will appear here!\n";
+    // std::cerr << "Logs from your program will appear here!\n";
 
-    // TODO: Uncomment the code below to pass the first stage
     
     if (argc < 2) {
         std::cerr << "No command provided.\n";
@@ -41,7 +43,23 @@ int main(int argc, char *argv[])
             std::cerr << e.what() << '\n';
             return EXIT_FAILURE;
         }
-    } else {
+    } 
+    else if(command == "cat-file"){
+        std::string file_name = argv[3];
+        std::string file_location = std::string(".git/objects/") + 
+                               std::string(file_name.substr(0,2)) + '/' + 
+                               std::string(file_name.substr(2));
+
+        zstr::ifstream file(file_location);
+
+        std::string contents((std::istreambuf_iterator<char>(file)), 
+                             (std::istreambuf_iterator<char>()));
+
+        size_t header_size = contents.find('\0') + 1;
+
+        cout<< string_view(contents.begin() + header_size + contents.end());
+    }
+    else {
         std::cerr << "Unknown command " << command << '\n';
         return EXIT_FAILURE;
     }
