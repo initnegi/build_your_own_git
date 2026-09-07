@@ -3,8 +3,7 @@
 #include <fstream>
 #include <string>
 #include <vector>
-
-#include "zstr/zstr.hpp"
+#include <zlib.h>
 
 int main(int argc, char *argv[]){
 
