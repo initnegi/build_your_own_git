@@ -8,8 +8,18 @@
 - Store fetched objects as standard loose objects: existing commands already understand that format, and it makes the cloned `.git` inspectable by the tester.
 - Checkout the advertised tip tree recursively: the tester verifies working-tree contents as well as commit metadata.
 - Record meaningful versions with local Git commits: each implementation checkpoint gets a commit ID so it can be restored deliberately without rewriting history.
+- Keep the local Windows workflow independent of Linux-only headers and unavailable OpenSSL packages: use a portable SHA-1 implementation, conditional Windows pipe handling, and the direct `g++` build in `your_program.sh`.
+- Keep personal troubleshooting and capability notes in the ignored `.local-notes/` directory so they remain available locally without becoming part of the public repository.
 
 ## Checkpoints
 
 - `9ede237` - pre-clone implementation.
 - `56841fa` - Smart HTTP clone implementation with pack decoding and checkout.
+
+## Local portability
+
+The source no longer depends on `sys/wait.h` or OpenSSL headers. On Windows,
+`popen` and `pclose` are mapped to their Microsoft equivalents, binary curl
+output is read in binary mode, and the runner selects the MSYS2 UCRT64
+environment before compiling and launching the program. zlib remains the native
+dependency for Git object compression and packfile decompression.
