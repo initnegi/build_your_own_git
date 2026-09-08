@@ -4,9 +4,9 @@
 
 This project is a miniature Git implementation developed for the CodeCrafters **Build Your Own Git** challenge. The implementation recreates the essential internal behavior of Git rather than calling the system Git executable. It supports repository initialization, Git object creation and inspection, tree construction, commit creation, and cloning a public GitHub repository.
 
-The implementation is intentionally centered in one source file, [`src/main.cpp`](src/main.cpp), because all challenge commands are routed through the same executable. The project is built with CMake as a C++23 application named `git`. It uses:
+The implementation is intentionally centered in one source file, [`src/main.cpp`](src/main.cpp), because all challenge commands are routed through the same executable. The project is built as a C++23 application named `git`. It uses:
 
-- **OpenSSL** for SHA-1 object hashing.
+- An embedded **SHA-1** implementation for Git object hashing.
 - **zlib** for Git object compression and packfile decompression.
 - **C++ filesystem APIs** for repository and working-tree manipulation.
 - **curl**, invoked from C++, for HTTP communication with GitHub.
@@ -245,4 +245,9 @@ A concise project description would be:
 
 ## 12. Validation Status
 
-Whitespace validation and source diagnostics were performed. Complete local compilation was blocked by the environment: CMake was unavailable, and the available MinGW compiler was too old to provide the C++ `<filesystem>` header required by the project. A full build and live clone test require a modern C++ toolchain with CMake, OpenSSL, zlib, and curl available on the system.
+The source compiles locally with MSYS2 UCRT64 `g++` and zlib. The local runner
+passes shell syntax validation, `hash-object` output matches Git, and a live
+public GitHub clone has been completed successfully. OpenSSL and `sys/wait.h`
+are not required by the Windows build; CMake remains available for the
+CodeCrafters configuration, while `your_program.sh` uses the direct local
+`g++` workflow.

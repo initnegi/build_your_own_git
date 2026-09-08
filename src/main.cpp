@@ -4,9 +4,9 @@
 #include <string>
 #include <vector>
 #include <algorithm>
+#include <cstdint>
 #include <cstdio>
 #include <zlib.h>
-#include <openssl/sha.h>
 #include <sstream>
 #include <cstring>
 #include <cstdlib>
@@ -15,7 +15,114 @@
 #include <ctime>
 #include <unordered_map>
 #include <stdexcept>
-#include <sys/wait.h>
+
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#define popen _popen
+#define pclose _pclose
+
+void setPipeBinary(FILE* pipe) {
+    _setmode(_fileno(pipe), _O_BINARY);
+}
+#else
+void setPipeBinary(FILE*) {}
+#endif
+
+constexpr int SHA_DIGEST_LENGTH = 20;
+
+uint32_t leftRotate(uint32_t value, uint32_t amount) {
+    return (value << amount) | (value >> (32 - amount));
+}
+
+void SHA1(const unsigned char* input, size_t inputSize, unsigned char* digest) {
+    uint64_t bitLength = static_cast<uint64_t>(inputSize) * 8;
+    size_t paddedSize = ((inputSize + 9 + 63) / 64) * 64;
+    std::vector<unsigned char> message(paddedSize, 0);
+
+    std::memcpy(message.data(), input, inputSize);
+    message[inputSize] = 0x80;
+
+    for(int i = 0; i < 8; i++) {
+        message[paddedSize - 1 - i] =
+            static_cast<unsigned char>(bitLength >> (i * 8));
+    }
+
+    uint32_t h0 = 0x67452301;
+    uint32_t h1 = 0xefcdab89;
+    uint32_t h2 = 0x98badcfe;
+    uint32_t h3 = 0x10325476;
+    uint32_t h4 = 0xc3d2e1f0;
+
+    for(size_t chunk = 0; chunk < paddedSize; chunk += 64) {
+        uint32_t words[80]{};
+
+        for(int i = 0; i < 16; i++) {
+            size_t offset = chunk + static_cast<size_t>(i) * 4;
+            words[i] =
+                (static_cast<uint32_t>(message[offset]) << 24) |
+                (static_cast<uint32_t>(message[offset + 1]) << 16) |
+                (static_cast<uint32_t>(message[offset + 2]) << 8) |
+                static_cast<uint32_t>(message[offset + 3]);
+        }
+
+        for(int i = 16; i < 80; i++) {
+            words[i] = leftRotate(
+                words[i - 3] ^ words[i - 8] ^ words[i - 14] ^ words[i - 16],
+                1
+            );
+        }
+
+        uint32_t a = h0;
+        uint32_t b = h1;
+        uint32_t c = h2;
+        uint32_t d = h3;
+        uint32_t e = h4;
+
+        for(int i = 0; i < 80; i++) {
+            uint32_t function;
+            uint32_t constant;
+
+            if(i < 20) {
+                function = (b & c) | ((~b) & d);
+                constant = 0x5a827999;
+            }
+            else if(i < 40) {
+                function = b ^ c ^ d;
+                constant = 0x6ed9eba1;
+            }
+            else if(i < 60) {
+                function = (b & c) | (b & d) | (c & d);
+                constant = 0x8f1bbcdc;
+            }
+            else {
+                function = b ^ c ^ d;
+                constant = 0xca62c1d6;
+            }
+
+            uint32_t temporary = leftRotate(a, 5) + function + e + constant + words[i];
+            e = d;
+            d = c;
+            c = leftRotate(b, 30);
+            b = a;
+            a = temporary;
+        }
+
+        h0 += a;
+        h1 += b;
+        h2 += c;
+        h3 += d;
+        h4 += e;
+    }
+
+    const uint32_t hash[] = {h0, h1, h2, h3, h4};
+    for(int i = 0; i < 5; i++) {
+        digest[i * 4] = static_cast<unsigned char>(hash[i] >> 24);
+        digest[i * 4 + 1] = static_cast<unsigned char>(hash[i] >> 16);
+        digest[i * 4 + 2] = static_cast<unsigned char>(hash[i] >> 8);
+        digest[i * 4 + 3] = static_cast<unsigned char>(hash[i]);
+    }
+}
 
 
 struct TreeEntry {
@@ -23,7 +130,6 @@ struct TreeEntry {
     std::string mode;
     std::string sha;
 };
-
 
 struct PackObject {
     int type;
@@ -104,7 +210,6 @@ void parsePackHeader(PackParser& parser, uint32_t& objectCount) {
         );
 }
 
-
 std::string sha1Hex(const std::string& data) {
 
     unsigned char hash[SHA_DIGEST_LENGTH];
@@ -174,6 +279,8 @@ std::string runCurl(const std::string& url, const std::string& extraArgs = ""){
     if(!pipe) {
         throw std::runtime_error("Failed to run curl");
     }
+
+    setPipeBinary(pipe);
 
     char buffer[8192];
 
@@ -315,6 +422,8 @@ std::string requestPack(const std::string& repoUrl, const std::string& headSha){
             "Failed to run curl"
         );
     }
+
+    setPipeBinary(pipe);
 
     std::string result;
 

@@ -1,37 +1,21 @@
 [![progress-banner](https://backend.codecrafters.io/progress/git/92101e8e-30cd-4521-82f1-d25f6a67c165)](https://app.codecrafters.io/users/initnegi?r=2qF)
 
-This is a starting point for C++ solutions to the
-["Build Your Own Git" Challenge](https://codecrafters.io/challenges/git).
+This project is an independent C++ implementation of selected Git behavior.
+The idea, learning resources, and feature progression were taken from the
+[CodeCrafters Build Your Own Git challenge](https://codecrafters.io/challenges/git),
+but the implementation and local Windows portability work were completed in
+this repository.
 
-In this challenge, you'll build a small Git implementation that's capable of
-initializing a repository, creating commits and cloning a public repository.
-Along the way we'll learn about the `.git` directory, Git objects (blobs,
-commits, trees etc.), Git's transfer protocols and more.
+# Implemented stages
 
-**Note**: If you're viewing this repo on GitHub, head over to
-[codecrafters.io](https://codecrafters.io) to try the challenge.
-
-# Passing the first stage
-
-The entry point for your Git implementation is in `src/main.cpp`. Study and
-uncomment the relevant code, and then run the command below to execute the tests
-on our servers:
-
-```sh
-codecrafters submit
-```
-
-That's all!
-
-# Stage 2 & beyond
-
-Note: This section is for stages 2 and beyond.
-
-1. Ensure you have `cmake` installed locally
-1. Run `./your_program.sh` to run your Git implementation, which is implemented
-   in `src/main.cpp`.
-1. Run `codecrafters submit` to submit your solution to CodeCrafters. Test
-   output will be streamed to your terminal.
+1. Repository initialization: create `.git`, object, refs, and `HEAD` files.
+2. Object inspection: read and display compressed Git objects with `cat-file`.
+3. Blob hashing: create Git-compatible blob IDs and store compressed objects.
+4. Tree listing: parse tree objects and print their file and directory names.
+5. Tree writing: recursively build deterministic trees and blobs from a folder.
+6. Commit creation: create commits with tree, parent, author, and message data.
+7. Public clone: discover refs, request a pack, decode objects and deltas.
+8. Checkout: write loose objects and recursively restore the commit's files.
 
 # Testing locally
 
@@ -57,3 +41,24 @@ alias mygit=/path/to/your/repo/your_program.sh
 mkdir -p /tmp/testing && cd /tmp/testing
 mygit init
 ```
+
+# Local Windows build
+
+On Windows, use Git Bash with an MSYS2 UCRT64 `g++` compiler and zlib installed.
+`your_program.sh` builds the C++ source directly and configures the UCRT64
+environment automatically. Open Git Bash and run:
+
+```bash
+cd /c/Users/Chaitanya/codecrafters-git-cpp
+rm -rf /tmp/mini-git-test
+mkdir -p /tmp/mini-git-test
+cd /tmp/mini-git-test
+
+/c/Users/Chaitanya/codecrafters-git-cpp/your_program.sh clone \
+   https://github.com/octocat/Hello-World.git hello-world
+```
+
+The local runner also supports `init`, `cat-file`, `hash-object`, `ls-tree`,
+`write-tree`, and `commit-tree`. OpenSSL and `sys/wait.h` are not required by
+the local Windows build. Private troubleshooting notes are kept in the ignored
+`.local-notes/` directory.

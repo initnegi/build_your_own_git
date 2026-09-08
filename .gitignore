@@ -238,6 +238,10 @@ vc_hdrs.h
 !*.svg  # comment out if you don't need vector files
 [._]*.sw[a-p]
 [._]s[a-rt-v][a-z]
+
+##### Local project notes
+# Private troubleshooting and capability notes; do not publish these files.
+.local-notes/
 [._]ss[a-gi-z]
 [._]sw[a-p]
 
